@@ -1,119 +1,113 @@
-# DouyinLiquidGlass（抖音液态玻璃插件）
+# DouyinLiquidGlass
 
-借鉴 [winaviation-tweaks/liquidass](https://github.com/winaviation-tweaks/liquidass) 的"玻璃思路"（backdrop 实时模糊层 + 高光渐变 + 圆角 + 可配置），针对**抖音 App 内部 UI**（按钮、底部 tab 栏、搜索框等）做的独立插件。
+Ispirato all'estetica "glass" (effetto vetro) di [winaviation-tweaks/liquidass](https://github.com/winaviation-tweaks/liquidass) — caratterizzata da sfocatura dello sfondo in tempo reale, riflessi diagonali, angoli arrotondati e completa configurabilità — questo plugin è progettato specificamente per l'**interfaccia utente interna dell'app Douyin** (pulsanti, barre di navigazione inferiori, barre di ricerca, ecc.).
 
-- 编译产物：`.dylib`（App 注入用）+ `.deb`（Sileo 安装用）
-- 只作用于抖音进程（bundle id：`com.ss.iphone.ugc.Aweme`），不碰 DYKiller，可共存
-- 支持 iOS 14.0+
+- Artefatti di compilazione: `.dylib` (per l'iniezione nell'app) e `.deb` (per l'installazione tramite Sileo).
+- Agisce esclusivamente sul processo Douyin (bundle ID: `com.ss.iphone.ugc.Aweme`); compatibile con DYKiller (nessun conflitto).
+- Supporta iOS 14.0 e versioni successive.
 
-## 架构（0.5.6，稳定最终形态）
+## Architettura (v0.5.6, versione stabile definitiva)
 
-**不依赖 CydiaSubstrate / ElleKit 的 `%hook`**，用 Objective-C runtime 直接 swizzle。核心四点：
+**Non si affida a `%hook` di CydiaSubstrate o ElleKit**; utilizza invece la tecnica di *method swizzling* del runtime di Objective-C. Caratteristiche principali:
 
-1. **悬浮胶囊（不改原生容器）**：底栏容器保持原生位置尺寸，玻璃画成"胶囊"垫在容器内部——原生 tab 项天然都在胶囊内（标签跟随），容器不动所以不碰进度条、不触 AutoLayout 冲突、切 tab 不消失；
-2. **定向 Hook**：只对已套玻璃的类做定向 `layoutSubviews` Hook（性能优，不拖慢抖音）；
-3. **稳定磨砂**：`UIVisualEffectView`（App 进程内稳定），自绘对角线高光 + 顶部亮边；右侧按钮/头像方形自动转**圆形胶囊**；
-4. **保守清底 + 层级正确**：只隐藏"铺满且类名像背景/含 Blur、且内部无任何图标/文字"的视图；**任何含 UIImageView/UILabel 的子视图一律不隐藏**（头像/图标绝不误伤）；玻璃被原生重排移除时自动钉回底层。
+1. **Capsule fluttuanti (non interferiscono con i contenitori nativi)**: Il contenitore originale della barra di navigazione inferiore mantiene la sua posizione e dimensione nativa. All'interno di questo contenitore viene renderizzata una capsula con effetto "vetro", che accoglie naturalmente gli elementi nativi della barra. Poiché il contenitore non viene spostato, non si verificano problemi con le barre di avanzamento né conflitti con l'AutoLayout; inoltre, l'effetto vetro rimane visibile anche durante il passaggio da una scheda all'altra.
+2. **Hooking mirato**: Il metodo `layoutSubviews` viene intercettato solo per le classi a cui è stato assegnato l'effetto vetro, garantendo prestazioni elevate senza rallentare l'app Douyin.
+3. **Effetto "vetro smerigliato" stabile**: Sfrutta `UIVisualEffectView` (stabile all'interno del processo dell'app), combinato con riflessi diagonali disegnati ad hoc e un bordo superiore luminoso. Gli elementi di forma quadrata — come pulsanti o avatar posizionati sulla destra — vengono trasformati automaticamente in **capsule dagli angoli arrotondati**.
+4. **Rimozione selettiva dello sfondo e gestione corretta dei livelli**: Vengono nascoste solo le viste che occupano l'intera area e che fungono da sfondo (ad esempio, quelle il cui nome di classe contiene il termine "Blur" e che sono prive di icone o testo). **Qualsiasi sotto-vista (subview) contenente un `UIImageView` o un `UILabel` viene rigorosamente preservata** (garantendo che avatar e icone non vengano mai nascosti accidentalmente). Se l'elemento "glass" (effetto vetro) viene rimosso a causa dei ricalcoli del layout nativo, esso viene automaticamente riagganciato al livello inferiore. **Stato "Off" predefinito per la diagnostica e migrazione con autoriparazione**: le impostazioni `Debug`/`ShowClassTag` non leggono più il vecchio file `.plist` (per evitare che valori residui causino problemi). Al loro posto viene utilizzata una **nuova chiave, `DiagnosticMode`** (impostata di default su "Off"; da attivare su "YES" solo quando è necessario rilevare i nomi effettivi delle classi). A partire dalla versione 0.5.8, il tweak **esegue una pulizia automatica** di eventuali chiavi di configurazione obsolete e problematiche al primo avvio, forzando il parametro `Enabled=YES`. In questo modo, anche qualora sul dispositivo rimanessero file `.plist` "sporchi", non si verificheranno più anomalie come riquadri rossi, etichette di classe persistenti o il glitch che rende invisibile l'intera interfaccia utente ("all-glass").
 
-**诊断开关写死关闭 + 自愈迁移**：`Debug`/`ShowClassTag` 不再读旧 plist（防止残留值污染），改用**全新键 `DiagnosticMode`**（默认关，需要抓真实类名时手动设 YES）。v0.5.8 起**首次加载自动清理**旧版残留的危险配置键并强制 `Enabled=YES`——即使手机里留着脏 plist，也不会再导致红框/标签/全无玻璃。
-**几何启发式 v0.5.9 恢复**：右侧按钮类名抓不准（40.x 一直在变），恢复**右侧几何启发式**（右缘 30~80pt 小方块 + 垂直中段 + 含图标护栏）兜底；底部/顶部仍走精准类名白名单，不再用几何盲猜。
+**Ripristino dell'euristica geometrica (v0.5.9)**: Poiché il rilevamento dei nomi delle classi per i pulsanti situati sul lato destro è diventato inaffidabile (a causa dei frequenti cambiamenti nelle versioni 40.x), è stato ripristinato il **metodo basato sull'euristica geometrica per il lato destro**. Tale metodo funge ora da meccanismo di riserva (fallback), identificando gli elementi in base a criteri specifici: forme piccole e tendenzialmente quadrate, posizionate a una distanza di 30–80pt dal bordo destro, collocate nella sezione centrale verticale e contenenti icone. Per gli elementi posizionati nella parte superiore o inferiore dello schermo, il sistema continua ad affidarsi a una whitelist precisa di nomi di classe, evitando così stime geometriche approssimative.
 
-同一份 dylib **两种装法都能跑**：
-- 作为 **deb 装进 Dopamine（Sileo）**，由 ElleKit 注入抖音进程；
-- 用 **TrollStore / TrollFools 直接注入抖音 IPA**（无需越狱运行时）。
+Lo stesso file `.dylib` è **compatibile con entrambi i metodi di installazione**:
+- Installazione tramite **pacchetto `.deb` via Dopamine (Sileo)**, con iniezione nel processo TikTok gestita da ElleKit.
+- Iniezione diretta nel file `.ipa` di TikTok tramite **TrollStore / TrollFools** (senza necessità di un ambiente jailbreak attivo). ## Configurazione (`/var/mobile/Library/Preferences/com.dy.liquidglass.plist`)
 
-## 配置（`/var/mobile/Library/Preferences/com.dy.liquidglass.plist`）
-
-| Key | 默认 | 说明 |
+| Chiave | Predefinito | Descrizione |
 |---|---|---|
-| `Enabled` | YES（首启强制） | 总开关 |
-| `DiagnosticMode` | NO | 全新诊断键：设 YES 显示红色类名标签（截图抓真实类名）；用完设回 NO |
-| `Floating` | YES | 底栏悬浮胶囊开关 |
-| `SideHeuristic` | YES | 右侧按钮几何兜底（右缘 30~80pt 小方块+中段+含图标护栏），类名抓准后可改 NO |
-| `FloatMargin` | 16 | 胶囊左右内缩(pt) |
-| `FloatCornerRadius` | -1 | 胶囊圆角（-1=高度一半药丸） |
-| `BlurStyle` | 59 | 磨砂样式（59=SystemThinMaterialDark） |
-| `Gloss` | 0.7 | 高光强度 0~1 |
-| `TargetClasses` | 内置 | 精确类名白名单（**并集**：内置 AWEFeedTopBarContainer / AWENormalModeTabBar 永远生效，自定义只追加） |
-| `TargetSubstrings` | 内置 | 右侧按钮猜测类名（**并集**，必须小尺寸+含图标才生效） |
-| `ExcludedClasses` | 内置 | 排除名单（**并集**：AWEFeedViewCell / AWEGradientView 永远生效） |
+| `Enabled` | YES (forzato al primo avvio) | Interruttore principale |
+| `DiagnosticMode` | NO | Nuova modalità diagnostica: impostare su YES per visualizzare etichette rosse con i nomi delle classi (utile per identificare i nomi reali delle classi tramite screenshot); reimpostare su NO una volta terminato. |
+| `Floating` | YES | Attiva/disattiva la capsula fluttuante nella barra inferiore |
+| `SideHeuristic` | YES | Meccanismo geometrico di fallback per i pulsanti sul lato destro (rileva piccoli quadrati, elementi posizionati centralmente e componenti che contengono icone lungo il bordo destro); può essere impostato su NO una volta identificati i nomi specifici delle classi. |
+| `FloatMargin` | 16 | Margine orizzontale per la capsula (in pt) |
+| `FloatCornerRadius` | -1 | Raggio di curvatura degli angoli della capsula (-1 = forma a "pillola", ovvero pari a metà dell'altezza) |
+| `BlurStyle` | 59 | Stile dell'effetto sfocatura (59 = `SystemThinMaterialDark`) |
+| `Gloss` | 0.7 | Intensità del riflesso speculare (0–1) |
+| `TargetClasses` | Predefinito | Lista consentita (whitelist) di nomi di classi specifici (**unione**: le classi predefinite, come `AWEFeedTopBarContainer` e `AWENormalModeTabBar`, sono sempre attive; le voci personalizzate vengono aggiunte a queste). |
+| `TargetSubstrings` | Predefinito | Sottostringhe utilizzate per dedurre i nomi delle classi dei pulsanti sul lato destro (**unione**; efficace solo se l'elemento è di piccole dimensioni e contiene un'icona). |
+| `ExcludedClasses` | Predefinito | Lista di esclusione (**unione**: `AWEFeedViewCell` e `AWEGradientView` sono sempre escluse). |
 
-## 效果边界（重要，请务必理解）
+## Ambito e limitazioni (Importante: leggere attentamente)
 
-| 能力 | 是否支持 | 说明 |
+| Funzionalità | Supportata | Note |
 |---|---|---|
-| 磨砂玻璃（实时背景模糊） | ✅ | `UIVisualEffectView`（App 内稳定） |
-| 高光渐变 / 圆角 / 玻璃淡色底 / 悬浮药丸 | ✅ | 自绘 specular + 边缘亮边 + 悬浮重构 |
-| 折射 / 色散（iOS26 液态玻璃签名效果） | ❌ | 那是 backboardd 渲染服务的自定义 Metal 着色器，App 进程内无入口 |
+| Effetto vetro smerigliato (sfocatura dello sfondo in tempo reale) | ✅ | Utilizza `UIVisualEffectView` (stabile all'interno delle applicazioni) |
+| Gradienti speculari / Angoli arrotondati / Base in vetro colorato / Elemento flottante | ✅ | Riflessi speculari renderizzati ad hoc + effetti di illuminazione sui bordi | + Ricostruzione dell'interfaccia utente (UI) flottante |
+| Rifrazione / Dispersione (effetto distintivo "Liquid Glass" di iOS 26) | ❌ | Questo si basa su shader Metal personalizzati all'interno del servizio di rendering `backboardd`; non è accessibile dall'interno del processo di un'applicazione. |
 
-即：做出来是"**磨砂液态玻璃风格**"，不是逐像素折射/色散。这是 App 进程内能达到的效果上限。
+In sintesi: il risultato è uno stile "vetro liquido smerigliato" (*frosted liquid glass*), anziché una rifrazione o dispersione calcolata per singolo pixel. Si tratta del massimo effetto visivo ottenibile dall'interno del processo di un'applicazione.
 
-## 目录结构
+## Struttura delle directory
 
 ```
 DouyinLiquidGlass/
-├── Tweak.x                  # 主入口：轻量 didMoveToWindow 发现 + 命中路由（无 substrate）
-├── DYGlassView.h/.m         # 玻璃视图（UIVisualEffectView 磨砂 + 自绘高光 + 淡色底）
-├── DYGlassInjector.h/.m     # 注入/深度清底/悬浮重构/定向Hook/类名标签/移除
-├── DYPrefsSupport.h/.m      # 偏好读取 + 命中判定缓存 + 热更新
+├── Tweak.x                  # Punto di ingresso principale: rilevamento leggero tramite `didMoveToWindow` + corrispondenza dei percorsi (senza dipendenze da Substrate)
+├── DYGlassView.h/.m         # Vista in vetro (`UIVisualEffectView` con finitura smerigliata, riflessi disegnati su misura e base colorata)
+├── DYGlassInjector.h/.m     # Iniezione, rimozione dello sfondo, ricostruzione dell'interfaccia flottante, hooking mirato, etichettatura delle classi e logica di rimozione
+├── DYPrefsSupport.h/.m      # Caricamento delle preferenze, memorizzazione nella cache dei risultati e ricaricamento dinamico (*hot-reloading*)
 ├── Makefile / control / DouyinLiquidGlass.plist
-└── Prefs/                   # 设置面板（preferenceloader，暂缓编译）
+└── Prefs/                   # Pannello delle impostazioni (tramite PreferenceLoader; compilazione attualmente rimandata)
 ```
 
-## 构建（GitHub Actions 云端编译，无需 Mac）
+## Compilazione (Basata su cloud tramite GitHub Actions; non è richiesto un Mac)
 
-本项目用 `.github/workflows/build.yml` 在 GitHub 的 macOS runner 上编译，
-自动产出 rootful + rootless 两种 deb（arm64 + arm64e 新 ABI，适配 Dopamine）。
+Questo progetto utilizza il file `.github/workflows/build.yml` per la compilazione sui runner macOS di GitHub.
+Genera automaticamente pacchetti `.deb` sia in modalità "rootful" che "rootless" (con supporto per le architetture `arm64` e l'ABI `arm64e`, compatibili con Dopamine).
 
-推送/上传代码到仓库后，Actions 自动构建；构建产物在运行页底部 **Artifacts → deb** 下载。
+Una volta effettuato il push o il caricamento del codice nel repository, GitHub Actions avvierà la compilazione. Gli artefatti risultanti possono essere scaricati in fondo alla pagina di esecuzione del workflow, sotto la voce **Artifacts → deb**.
 
-## 安装（两种路线任选）
+## Installazione (Scegliere uno dei seguenti metodi)
 
-**路线 A：Dopamine（Sileo）装 deb**
-1. 下载 `deb.zip` 解压出 `.deb`；
-2. 传到手机，用 Filza 点击 → 安装（Sileo 完成）；
-3. 注销（respring）→ 杀掉抖音 → 重开。
+**Metodo A: Installazione tramite Dopamine (Sileo)**
+1. Scaricare `deb.zip` ed estrarre il file `.deb`. 2. Trasferisci il file sul tuo dispositivo, individualo tramite Filza e toccalo per installarlo (usando Sileo).
+3. Esegui un "respring" del dispositivo, chiudi forzatamente l'app Douyin e riavviala. **Metodo B: Iniezione di un file dylib tramite TrollStore / TrollFools**
+1. Ottieni il file `DouyinLiquidGlass.dylib` (estraendolo dal pacchetto `.deb` o recuperandolo come artefatto di build autonomo dalla CI).
+2. Utilizza TrollFools per iniettare il file dylib nell'app Douyin già installata.
+3. Chiudi forzatamente l'app Douyin e riavviala.
 
-**路线 B：TrollStore / TrollFools 注入 dylib**
-1. 编译产物里的 `DouyinLiquidGlass.dylib`（从 deb 中解出，或在 CI 里单独产物）；
-2. 用 TrollFools 注入到已安装的抖音 App；
-3. 杀掉抖音 → 重开。
+> Questo plugin non dipende da Substrate; pertanto, il Metodo B (esecuzione senza jailbreak) è pienamente supportato.
 
-> 本插件不依赖 substrate，因此路线 B（无越狱运行时）同样能跑。
+## Logica di corrispondenza (pronta all'uso e configurabile)
 
-## 命中逻辑（开箱即用 + 可调）
+1. **Elenco di esclusione** (`ExcludedClasses`) — Ha la priorità massima: se viene rilevata una corrispondenza, l'elemento viene ignorato.
+2. **Nomi di classe esatti** (`TargetClasses`) — Applica l'effetto "glass" (vetro) in caso di corrispondenza esatta.
+3. **Sottostringhe dei nomi di classe** (`TargetSubstrings`) — Include valori predefiniti come `TabBar`, `TabBars`, `BottomBar`, `BottomNav`, `MainTabBar`, `ToolBar` e `BottomTab`; l'effetto viene applicato se viene rilevata una corrispondenza.
+4. **Euristiche per la barra inferiore** (`Heuristics`) — Identifica automaticamente gli elementi con una larghezza superiore a 200pt, un rapporto larghezza-altezza maggiore di 2:1 e posizionati entro 60pt dal bordo inferiore dello schermo.
 
-1. **排除名单**（`ExcludedClasses`）→ 最高优先，命中直接跳过；
-2. **精确类名**（`TargetClasses`）→ 完全匹配即套玻璃；
-3. **类名子串**（`TargetSubstrings`）→ 内置默认：`TabBar / TabBars / BottomBar / BottomNav / MainTabBar / ToolBar / BottomTab`，命中即套；
-4. **底部横条启发式**（`Heuristics`）→ 宽 > 200pt、宽 > 2×高、贴底 <60pt 自动识别。
+La valutazione dei nomi di classe si avvale di un **sistema di caching a tre livelli**, che garantisce prestazioni fluide anche quando le migliaia di viste (view) di Douyin sono soggette a frequenti aggiornamenti del layout.
 
-类名判定有**三级缓存**，抖音上千视图反复布局也不会卡。
+## Configurazione (non richiede ricompilazione)
 
-## 调参（不需要重编译）
-
-设置面板暂缓编译，但所有参数都走 plist 热更新。用 Filza 编辑：
+Sebbene non sia ancora disponibile un'interfaccia dedicata per le impostazioni, tutti i parametri possono essere regolati tramite un file `plist`, che supporta il ricaricamento in tempo reale (hot-reloading). Modifica tramite Filza:
 
 ```
 /var/mobile/Library/Preferences/com.dy.liquidglass.plist
 ```
 
-常用键：
-- `Enabled`（BOOL，默认 YES）
-- `Debug`（BOOL，默认 YES，套玻璃时会打 `[DouyinLiquidGlass] 套玻璃: 类名` 日志）
-- `FilterType`（默认 `systemMaterialBlur`，iOS15 自动回退 `gaussianBlur`）
-- `Blur`（高斯半径，0 = 用默认 25）
-- `Gloss`（高光强度 0~1，默认 0.7）
-- `Quality`（捕获质量，默认 1）
-- `CornerRadius`（圆角，<0 跟随目标）
-- `Heuristics`（启发式开关，默认 YES）
-- `TargetClasses` / `TargetSubstrings` / `ExcludedClasses`（数组）
+Chiavi comuni:
+- `Enabled` (BOOL, predefinito: YES)
+- `Debug` (BOOL, predefinito: YES; registra `[DouyinLiquidGlass] 套玻璃: [class name]` quando viene applicato l'effetto vetro)
+- `FilterType` (predefinito: `systemMaterialBlur`; su iOS 15 viene utilizzato come fallback `gaussianBlur`)
+- `Blur` (raggio gaussiano; 0 = valore predefinito di 25)
+- `Gloss` (intensità del riflesso, 0–1; predefinito: 0,7)
+- `Quality` (qualità di cattura; predefinito: 1)
+- `CornerRadius` (raggio degli angoli; <0 segue il raggio dell'elemento di destinazione)
+- `Heuristics` (rilevamento basato su euristiche; predefinito: YES)
+- `TargetClasses` / `TargetSubstrings` / `ExcludedClasses` (array)
 
-改完保存后（或执行 `notifyutil -p com.dy.liquidglass/Reload`）即时生效，无需重启抖音。
+Le modifiche diventano effettive immediatamente dopo il salvataggio (oppure eseguendo `notifyutil -p com.dy.liquidglass/Reload`); non è necessario riavviare l'app Douyin.
 
-## 常见问题
+## FAQ
 
-- **某元素没变玻璃**：看日志有没有 `[DouyinLiquidGlass] 套玻璃: XXX`；没有 → 类名没命中，把它的类名加进 `TargetSubstrings`。
-- **某个元素背景被误删/误套**：把类名加进 `ExcludedClasses`。
-- **想要更精准的按钮类名**：用 class-dump 解你当前抖音版本的类名，填进 `TargetSubstrings`。
-- **想恢复设置面板**：在根 `Makefile` 取消 `#SUBPROJECTS += Prefs` 的注释，重新编译一版即可。
+- **Un elemento non presenta l'effetto vetro:** Controlla i log cercando `[DouyinLiquidGlass] 套玻璃: XXX`. Se non è presente, significa che il nome della classe non è stato rilevato; aggiungi il nome della classe a `TargetSubstrings`.
+- **Lo sfondo di un elemento è stato rimosso erroneamente o coperto dall'effetto vetro:** Aggiungi il nome della relativa classe a `ExcludedClasses`.
+- **Servono nomi di classi più precisi per i pulsanti:** Usa `class-dump` per estrarre i nomi delle classi dalla versione di Douyin attualmente installata, quindi aggiungili a `TargetSubstrings`.
+- **Vuoi ripristinare il pannello delle impostazioni:** Rimuovi il commento da `#SUBPROJECTS += Prefs` nel `Makefile` principale ed effettua nuovamente la compilazione.
